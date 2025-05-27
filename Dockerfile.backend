@@ -1,0 +1,29 @@
+# Dockerfile.backend
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package.json (backend)
+COPY package.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy backend source
+COPY src/index.ts ./src/
+COPY src/routes/ ./src/routes/
+COPY src/services/ ./src/services/
+COPY src/socket/ ./src/socket/
+COPY src/database/ ./src/database/
+COPY src/lib/ ./src/lib/
+COPY shared/ ./shared/
+COPY tsconfig.json ./
+
+# Create data directory
+RUN mkdir -p data
+
+# Expose port
+EXPOSE 3001
+
+# Start server
+CMD ["npm", "run", "dev"]
