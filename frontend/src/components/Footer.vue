@@ -64,9 +64,7 @@
       <!-- Bottom section -->
       <div class="border-t border-border pt-6 mt-6">
         <div class="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-          <div class="text-sm text-muted-foreground">
-            © {{ currentYear }} BlindOrder. Made with ❤️ for team coordination.
-          </div>
+          <div class="text-sm text-muted-foreground">© {{ currentYear }} BlindOrder.</div>
 
           <div class="flex items-center space-x-6 text-sm">
             <a href="#" class="text-muted-foreground hover:text-foreground transition-colors">
@@ -78,14 +76,6 @@
             <a href="#" class="text-muted-foreground hover:text-foreground transition-colors">
               Contact
             </a>
-            <div class="flex items-center space-x-2">
-              <a href="#" class="text-muted-foreground hover:text-foreground transition-colors">
-                <span class="text-lg">📧</span>
-              </a>
-              <a href="#" class="text-muted-foreground hover:text-foreground transition-colors">
-                <span class="text-lg">🐙</span>
-              </a>
-            </div>
           </div>
         </div>
       </div>
