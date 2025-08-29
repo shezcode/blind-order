@@ -1,5 +1,10 @@
 import { Router, Request, Response } from "express";
 import { RoomService } from "../services/roomService";
+import {
+  validateCreateRoom,
+  validateUpdateRoom,
+  validateRoomId,
+} from "../middleware/validation";
 
 const router = Router();
 
@@ -24,7 +29,7 @@ router.get("/", (req: Request, res: Response) => {
   }
 });
 
-router.get("/:roomId", (req: Request, res: Response) => {
+router.get("/:roomId", validateRoomId, (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
     const room = RoomService.getRoom(roomId);
@@ -47,30 +52,14 @@ router.get("/:roomId", (req: Request, res: Response) => {
       success: false,
       error: "Failed to fetch room",
     });
+    return;
   }
 });
 
-router.post("/", (req: Request, res: Response) => {
+router.post("/", validateCreateRoom, (req: Request, res: Response) => {
   try {
     const roomId = generateRoomCode();
     const { maxLives = 3, numbersPerPlayer = 6, hostName } = req.body;
-
-    // Validación
-    if (maxLives < 1 || maxLives > 10) {
-      res.status(400).json({
-        success: false,
-        error: "Max lives must be between 1 and 10",
-      });
-      return;
-    }
-
-    if (numbersPerPlayer < 1 || numbersPerPlayer > 20) {
-      res.status(400).json({
-        success: false,
-        error: "Numbers per player must be between 1 and 20",
-      });
-      return;
-    }
 
     const room = RoomService.createRoom(roomId, maxLives, numbersPerPlayer);
 
@@ -88,7 +77,7 @@ router.post("/", (req: Request, res: Response) => {
   }
 });
 
-router.put("/:roomId", (req: Request, res: Response) => {
+router.put("/:roomId", validateRoomId, (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
     const updates = req.body;
@@ -152,7 +141,7 @@ router.put("/:roomId", (req: Request, res: Response) => {
   }
 });
 
-router.delete("/:roomId", (req: Request, res: Response) => {
+router.delete("/:roomId", validateRoomId, (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
     const room = RoomService.getRoom(roomId);
@@ -180,34 +169,38 @@ router.delete("/:roomId", (req: Request, res: Response) => {
   }
 });
 
-router.get("/:roomId/players", (req: Request, res: Response) => {
-  try {
-    const { roomId } = req.params;
-    const room = RoomService.getRoom(roomId);
+router.get(
+  "/:roomId/players",
+  validateRoomId,
+  (req: Request, res: Response) => {
+    try {
+      const { roomId } = req.params;
+      const room = RoomService.getRoom(roomId);
 
-    if (!room) {
-      res.status(404).json({
-        success: false,
-        error: "Room not found",
+      if (!room) {
+        res.status(404).json({
+          success: false,
+          error: "Room not found",
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: room.players,
+        total: room.players.length,
       });
-      return;
+    } catch (error) {
+      console.error("Error fetching room players:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch room players",
+      });
     }
-
-    res.json({
-      success: true,
-      data: room.players,
-      total: room.players.length,
-    });
-  } catch (error) {
-    console.error("Error fetching room players:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch room players",
-    });
   }
-});
+);
 
-router.post("/:roomId/reset", (req: Request, res: Response) => {
+router.post("/:roomId/reset", validateRoomId, (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
     const room = RoomService.getRoom(roomId);

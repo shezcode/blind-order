@@ -1,6 +1,10 @@
 import { Router, Request, Response } from "express";
 import { RoomService } from "../services/roomService";
 import { Player } from "../lib/types";
+import {
+  validateCreatePlayer,
+  validatePlayerId,
+} from "../middleware/validation";
 
 const router = Router();
 
@@ -38,7 +42,7 @@ router.get("/", (req, res) => {
   }
 });
 
-router.get("/:playerId", (req, res) => {
+router.get("/:playerId", validatePlayerId, (req: Request, res: Response) => {
   try {
     const { playerId } = req.params;
     const allRooms = RoomService.getAllRooms();
@@ -79,19 +83,12 @@ router.get("/:playerId", (req, res) => {
   }
 });
 
-router.post("/", (req, res) => {
+router.post("/", validateCreatePlayer, (req: Request, res: Response) => {
   try {
     const { roomId, username } = req.body;
 
-    if (!roomId || !username) {
-      res.status(400).json({
-        success: false,
-        error: "roomId and username are required",
-      });
-      return;
-    }
-
     const room = RoomService.getRoom(roomId);
+
     if (!room) {
       res.status(404).json({
         success: false,
@@ -146,18 +143,10 @@ router.post("/", (req, res) => {
   }
 });
 
-router.put("/:playerId", (req, res) => {
+router.put("/:playerId", validatePlayerId, (req: Request, res: Response) => {
   try {
     const { playerId } = req.params;
     const { username } = req.body;
-
-    if (!username) {
-      res.status(400).json({
-        success: false,
-        error: "username is required",
-      });
-      return;
-    }
 
     const allRooms = RoomService.getAllRooms();
     let targetRoom = null;
@@ -227,7 +216,7 @@ router.put("/:playerId", (req, res) => {
   }
 });
 
-router.delete("/:playerId", (req, res) => {
+router.delete("/:playerId", validatePlayerId, (req: Request, res: Response) => {
   try {
     const { playerId } = req.params;
     const allRooms = RoomService.getAllRooms();
@@ -295,60 +284,64 @@ router.delete("/:playerId", (req, res) => {
   }
 });
 
-router.get("/:playerId/stats", (req, res) => {
-  try {
-    const { playerId } = req.params;
-    const allRooms = RoomService.getAllRooms();
-    let playerStats = {
-      playerId,
-      username: "",
-      currentRoom: null as string | null,
-      numbersRemaining: 0,
-      gamesPlayed: 0,
-      isHost: false,
-    };
+router.get(
+  "/:playerId/stats",
+  validatePlayerId,
+  (req: Request, res: Response) => {
+    try {
+      const { playerId } = req.params;
+      const allRooms = RoomService.getAllRooms();
+      let playerStats = {
+        playerId,
+        username: "",
+        currentRoom: null as string | null,
+        numbersRemaining: 0,
+        gamesPlayed: 0,
+        isHost: false,
+      };
 
-    // Buscar jugador y calcular estadísticas
-    for (const roomInfo of allRooms) {
-      const room = RoomService.getRoom(roomInfo.id);
-      if (room) {
-        const player = room.players.find((p) => p.id === playerId);
-        if (player) {
-          playerStats.username = player.username;
-          playerStats.currentRoom = room.id;
-          playerStats.numbersRemaining = player.numbers.length;
-          playerStats.isHost = room.hostId === playerId;
+      // Buscar jugador y calcular estadísticas
+      for (const roomInfo of allRooms) {
+        const room = RoomService.getRoom(roomInfo.id);
+        if (room) {
+          const player = room.players.find((p) => p.id === playerId);
+          if (player) {
+            playerStats.username = player.username;
+            playerStats.currentRoom = room.id;
+            playerStats.numbersRemaining = player.numbers.length;
+            playerStats.isHost = room.hostId === playerId;
 
-          // Contar juegos jugados basado en el timeline
-          if (room.timeline.length > 0) {
-            playerStats.gamesPlayed = 1;
+            // Contar juegos jugados basado en el timeline
+            if (room.timeline.length > 0) {
+              playerStats.gamesPlayed = 1;
+            }
+            break;
           }
-          break;
         }
       }
-    }
 
-    if (!playerStats.username) {
-      res.status(404).json({
+      if (!playerStats.username) {
+        res.status(404).json({
+          success: false,
+          error: "Player not found",
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: playerStats,
+      });
+      return;
+    } catch (error) {
+      console.error("Error fetching player stats:", error);
+      res.status(500).json({
         success: false,
-        error: "Player not found",
+        error: "Failed to fetch player stats",
       });
       return;
     }
-
-    res.json({
-      success: true,
-      data: playerStats,
-    });
-    return;
-  } catch (error) {
-    console.error("Error fetching player stats:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch player stats",
-    });
-    return;
   }
-});
+);
 
 export default router;
