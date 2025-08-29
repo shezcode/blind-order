@@ -128,7 +128,8 @@ const createRoom = async () => {
   isLoading.value = true;
 
   try {
-    const response = await fetch('http://localhost:3001/room', {
+    // Use the new API endpoint
+    const response = await fetch('http://localhost:3001/api/rooms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -143,11 +144,17 @@ const createRoom = async () => {
 
     const data = await response.json();
 
-    // Navigate to the room with host name
-    router.push(`/room/${data.roomId}?name=${encodeURIComponent(hostName.value.trim())}&host=true`);
+    if (data.success) {
+      // Navigate to the room with host name (using legacy room route for gameplay)
+      router.push(
+        `/room/${data.data.roomId}?name=${encodeURIComponent(hostName.value.trim())}&host=true`,
+      );
+    } else {
+      throw new Error(data.error || 'Failed to create room');
+    }
   } catch (error) {
     console.error('Error creating room:', error);
-    // You might want to show a toast notification here
+    alert(`Failed to create room: ${error}`);
   } finally {
     isLoading.value = false;
   }
