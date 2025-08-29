@@ -22,17 +22,19 @@ router.get("/", (req, res) => {
       }
     });
 
-    return res.json({
+    res.json({
       success: true,
       data: allPlayers,
       total: allPlayers.length,
     });
+    return;
   } catch (error) {
     console.error("Error fetching players:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       error: "Failed to fetch players",
     });
+    return;
   }
 });
 
@@ -55,22 +57,25 @@ router.get("/:playerId", (req, res) => {
     }
 
     if (!foundPlayer) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Player not found",
       });
+      return;
     }
 
-    return res.json({
+    res.json({
       success: true,
       data: foundPlayer,
     });
+    return;
   } catch (error) {
     console.error("Error fetching player:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       error: "Failed to fetch player",
     });
+    return;
   }
 });
 
@@ -79,26 +84,29 @@ router.post("/", (req, res) => {
     const { roomId, username } = req.body;
 
     if (!roomId || !username) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "roomId and username are required",
       });
+      return;
     }
 
     const room = RoomService.getRoom(roomId);
     if (!room) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Room not found",
       });
+      return;
     }
 
     const existingPlayer = room.players.find((p) => p.username === username);
     if (existingPlayer) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "Username already exists in this room",
       });
+      return;
     }
 
     const playerId = `player_${Date.now()}_${Math.random()
@@ -122,17 +130,19 @@ router.post("/", (req, res) => {
     RoomService.addPlayer(roomId, newPlayer);
     RoomService.updateRoom(room);
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       data: { ...newPlayer, roomId },
       message: "Player added to room successfully",
     });
+    return;
   } catch (error) {
     console.error("Error creating player:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       error: "Failed to create player",
     });
+    return;
   }
 });
 
@@ -142,10 +152,11 @@ router.put("/:playerId", (req, res) => {
     const { username } = req.body;
 
     if (!username) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "username is required",
       });
+      return;
     }
 
     const allRooms = RoomService.getAllRooms();
@@ -166,10 +177,11 @@ router.put("/:playerId", (req, res) => {
     }
 
     if (!targetPlayer || !targetRoom) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Player not found",
       });
+      return;
     }
 
     // Verificar que el nuevo username no exista en la sala
@@ -177,18 +189,20 @@ router.put("/:playerId", (req, res) => {
       (p) => p.username === username.trim() && p.id !== playerId
     );
     if (existingPlayer) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "Username already exists in this room",
       });
+      return;
     }
 
     // Solo permitir cambios si la sala está en lobby o el juego no ha empezado
     if (targetRoom.state === "playing") {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "Cannot update player during active game",
       });
+      return;
     }
 
     // Actualizar username
@@ -197,17 +211,19 @@ router.put("/:playerId", (req, res) => {
     // Guardar cambios
     RoomService.updateRoom(targetRoom);
 
-    return res.json({
+    res.json({
       success: true,
       data: { ...targetPlayer, roomId: targetRoom.id },
       message: "Player updated successfully",
     });
+    return;
   } catch (error) {
     console.error("Error updating player:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       error: "Failed to update player",
     });
+    return;
   }
 });
 
@@ -231,10 +247,11 @@ router.delete("/:playerId", (req, res) => {
     }
 
     if (!targetRoom || playerIndex === -1) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Player not found",
       });
+      return;
     }
 
     const wasHost = targetRoom.hostId === playerId;
@@ -252,26 +269,29 @@ router.delete("/:playerId", (req, res) => {
     // Si no quedan jugadores, eliminar la sala
     if (targetRoom.players.length === 0) {
       RoomService.deleteRoom(targetRoom.id);
-      return res.json({
+      res.json({
         success: true,
         message: "Player removed and room deleted (no players left)",
       });
+      return;
     }
 
     // Actualizar sala
     RoomService.updateRoom(targetRoom);
 
-    return res.json({
+    res.json({
       success: true,
       message: "Player removed successfully",
       ...(wasHost && { newHostId: targetRoom.hostId }),
     });
+    return;
   } catch (error) {
     console.error("Error deleting player:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       error: "Failed to delete player",
     });
+    return;
   }
 });
 
@@ -309,22 +329,25 @@ router.get("/:playerId/stats", (req, res) => {
     }
 
     if (!playerStats.username) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Player not found",
       });
+      return;
     }
 
-    return res.json({
+    res.json({
       success: true,
       data: playerStats,
     });
+    return;
   } catch (error) {
     console.error("Error fetching player stats:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       error: "Failed to fetch player stats",
     });
+    return;
   }
 });
 

@@ -25,11 +25,25 @@
             Home
           </router-link>
           <router-link
+            to="/rooms"
+            class="text-muted-foreground hover:text-foreground transition-colors font-medium"
+            :class="{ 'text-foreground': $route.path === '/rooms' }"
+          >
+            🏠 Rooms
+          </router-link>
+          <router-link
+            to="/players"
+            class="text-muted-foreground hover:text-foreground transition-colors font-medium"
+            :class="{ 'text-foreground': $route.path === '/players' }"
+          >
+            👥 Players
+          </router-link>
+          <router-link
             to="/create"
             class="text-muted-foreground hover:text-foreground transition-colors font-medium"
             :class="{ 'text-foreground': $route.path === '/create' }"
           >
-            Create Room
+            ➕ Create
           </router-link>
         </nav>
 
@@ -65,12 +79,28 @@
             Home
           </router-link>
           <router-link
+            to="/rooms"
+            @click="closeMobileMenu"
+            class="text-muted-foreground hover:text-foreground transition-colors font-medium"
+            :class="{ 'text-foreground': $route.path === '/rooms' }"
+          >
+            🏠 Rooms
+          </router-link>
+          <router-link
+            to="/players"
+            @click="closeMobileMenu"
+            class="text-muted-foreground hover:text-foreground transition-colors font-medium"
+            :class="{ 'text-foreground': $route.path === '/players' }"
+          >
+            👥 Players
+          </router-link>
+          <router-link
             to="/create"
             @click="closeMobileMenu"
             class="text-muted-foreground hover:text-foreground transition-colors font-medium"
             :class="{ 'text-foreground': $route.path === '/create' }"
           >
-            Create Room
+            ➕ Create Room
           </router-link>
         </div>
       </div>

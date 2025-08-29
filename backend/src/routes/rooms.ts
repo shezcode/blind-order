@@ -30,10 +30,11 @@ router.get("/:roomId", (req: Request, res: Response) => {
     const room = RoomService.getRoom(roomId);
 
     if (!room) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Room not found",
       });
+      return;
     }
 
     res.json({
@@ -56,17 +57,19 @@ router.post("/", (req: Request, res: Response) => {
 
     // Validación
     if (maxLives < 1 || maxLives > 10) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "Max lives must be between 1 and 10",
       });
+      return;
     }
 
     if (numbersPerPlayer < 1 || numbersPerPlayer > 20) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "Numbers per player must be between 1 and 20",
       });
+      return;
     }
 
     const room = RoomService.createRoom(roomId, maxLives, numbersPerPlayer);
@@ -92,27 +95,30 @@ router.put("/:roomId", (req: Request, res: Response) => {
 
     const room = RoomService.getRoom(roomId);
     if (!room) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Room not found",
       });
+      return;
     }
 
     // Solo permitir actualizaciones si la sala está en lobby
     if (room.state !== "lobby") {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: "Can only update rooms in lobby state",
       });
+      return;
     }
 
     // Aplicar actualizaciones permitidas
     if (updates.maxLives !== undefined) {
       if (updates.maxLives < 1 || updates.maxLives > 10) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: "Max lives must be between 1 and 10",
         });
+        return;
       }
       room.maxLives = updates.maxLives;
       room.lives = updates.maxLives; // Reset current lives
@@ -120,10 +126,11 @@ router.put("/:roomId", (req: Request, res: Response) => {
 
     if (updates.numbersPerPlayer !== undefined) {
       if (updates.numbersPerPlayer < 1 || updates.numbersPerPlayer > 20) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: "Numbers per player must be between 1 and 20",
         });
+        return;
       }
       room.numbersPerPlayer = updates.numbersPerPlayer;
     }
@@ -151,10 +158,11 @@ router.delete("/:roomId", (req: Request, res: Response) => {
     const room = RoomService.getRoom(roomId);
 
     if (!room) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Room not found",
       });
+      return;
     }
 
     RoomService.deleteRoom(roomId);
@@ -178,10 +186,11 @@ router.get("/:roomId/players", (req: Request, res: Response) => {
     const room = RoomService.getRoom(roomId);
 
     if (!room) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Room not found",
       });
+      return;
     }
 
     res.json({
@@ -204,10 +213,11 @@ router.post("/:roomId/reset", (req: Request, res: Response) => {
     const room = RoomService.getRoom(roomId);
 
     if (!room) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Room not found",
       });
+      return;
     }
 
     // Reset room to lobby state
