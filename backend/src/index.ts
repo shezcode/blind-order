@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import roomRoutes from "./routes/rooms";
+import playersRoutes from "./routes/players";
 import { setupSocketHandlers } from "./socket/handlers";
 import { initializeDatabase, cleanupOldRooms } from "./database/database";
 import { RoomService } from "./services/roomService";
@@ -30,8 +31,13 @@ app.get("/", (req, res) => {
   res.json({ message: "BlindOrder API running!" });
 });
 
+//legacy routes
 app.use("/room", roomRoutes);
 app.use("/rooms", roomRoutes);
+
+//new routes
+app.use("/api/rooms", roomRoutes);
+app.use("/api/players", playersRoutes);
 
 // Setup socket handlers
 setupSocketHandlers(io);
