@@ -1,6 +1,7 @@
 import { RoomService } from "./roomService";
 import { PlayerService } from "./playerService";
 import { Room, Player, CreateRoomData, CreatePlayerData } from "../lib/types";
+import { config } from "../../config";
 
 export class SocketRoomAdapter {
   private roomService: RoomService;
@@ -96,6 +97,20 @@ export class SocketRoomAdapter {
     roomId: string,
     player: { id: string; username: string }
   ): Promise<void> {
+    // Check if player already exists
+    const room = await this.getRoom(roomId);
+    if (!room) return;
+
+    const existingPlayer = room.players.find(
+      (p: Player) => p.username === player.username
+    );
+    if (existingPlayer) {
+      // Update socket ID instead of creating new player
+      existingPlayer.id = player.id;
+      return;
+    }
+
+    // Only create in database OR cache, not both
     const playerData: CreatePlayerData = {
       roomId,
       username: player.username,
@@ -104,19 +119,13 @@ export class SocketRoomAdapter {
     const newPlayer = await this.playerService.createPlayer(playerData);
 
     // Update cache
-    const room = this.roomsCache.get(roomId);
-    if (room) {
-      room.players.push({
-        id: newPlayer.id,
+    const cachedRoom = this.roomsCache.get(roomId);
+    if (cachedRoom) {
+      cachedRoom.players.push({
+        id: player.id, // Use socket ID, not database ID
         username: newPlayer.username,
         numbers: newPlayer.numbers,
       });
-
-      // If first player, make them host
-      if (room.players.length === 1) {
-        room.hostId = newPlayer.id;
-        await this.roomService.updateRoom(roomId, { hostId: newPlayer.id });
-      }
     }
   }
 

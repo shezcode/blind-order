@@ -63,7 +63,9 @@ export const setupSocketHandlers = (io: Server) => {
 
         // Add to room and database
         await socketRoomService.addPlayer(roomId, player);
-        room.players.push(player);
+
+        const updatedRoom = await socketRoomService.getRoom(roomId);
+        //room.players.push(player);
 
         // Set host if needed
         if (isHost || room.hostId === "") {
@@ -85,6 +87,10 @@ export const setupSocketHandlers = (io: Server) => {
 
         await socketRoomService.updateRoom(room);
         io.to(roomId).emit("room-updated", room);
+
+        if (room.state !== "lobby") {
+          socket.emit("game-state-updated", GameEngine.getGameState(room));
+        }
       }
     );
 

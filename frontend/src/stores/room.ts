@@ -60,9 +60,47 @@ export const useRoomStore = defineStore('room', () => {
 
   const currentPlayerNumbers = ref<number[]>([]);
 
+  const persistGameSession = () => {
+    if (currentRoomId.value && currentPlayerName.value) {
+      sessionStorage.setItem(
+        'gameSession',
+        JSON.stringify({
+          roomId: currentRoomId.value,
+          playerName: currentPlayerName.value,
+          isHost: isHost.value,
+        }),
+      );
+    }
+  };
+
+  const checkForExistingSession = () => {
+    const session = sessionStorage.getItem('gameSession');
+    if (session) {
+      try {
+        const { roomId, playerName, isHost: wasHost } = JSON.parse(session);
+        if (roomId && playerName) {
+          console.log(`Reconnecting to room ${roomId} as ${playerName}`);
+          // Set local state first
+          currentRoomId.value = roomId;
+          currentPlayerName.value = playerName;
+          // Rejoin the room
+          socket.emit('join-room', {
+            roomId,
+            playerName,
+            isHost: wasHost,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to parse game session:', error);
+        sessionStorage.removeItem('gameSession');
+      }
+    }
+  };
+
   const initializeSocket = () => {
     socket.on('connect', () => {
       connected.value = true;
+      checkForExistingSession();
     });
 
     socket.on('room-updated', (room) => {
@@ -83,6 +121,8 @@ export const useRoomStore = defineStore('room', () => {
       if (currentPlayer) {
         currentPlayerNumbers.value = currentPlayer.numbers || [];
       }
+
+      persistGameSession();
     });
 
     socket.on('game-state-updated', (newGameState: GameState) => {
@@ -91,13 +131,15 @@ export const useRoomStore = defineStore('room', () => {
 
     socket.on('room-deleted', (data: { reason: string }) => {
       console.log('Room deleted: ', data.reason);
+      // Clear session when room is deleted
+      sessionStorage.removeItem('gameSession');
       resetRoomState();
       roomDeletedCallback.value?.(data.reason);
     });
 
     socket.on('left-room', () => {
-      // Confirm that we've left the room
       console.log('Successfully left room');
+      sessionStorage.removeItem('gameSession');
       leaveCallback.value?.();
     });
 
@@ -147,6 +189,7 @@ export const useRoomStore = defineStore('room', () => {
     currentRoomId.value = roomId;
     currentPlayerName.value = playerName;
     socket.emit('join-room', { roomId, playerName, isHost: asHost });
+    // Session will be persisted when room-updated is received
   };
 
   const leaveRoom = () => {
@@ -154,6 +197,8 @@ export const useRoomStore = defineStore('room', () => {
     if (currentRoomId.value) {
       socket.emit('leave-room', { roomId: currentRoomId.value });
     }
+    // Clear session when intentionally leaving
+    sessionStorage.removeItem('gameSession');
     resetRoomState();
   };
 
