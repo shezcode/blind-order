@@ -1,27 +1,43 @@
 import { Router } from "express";
+import { PlayerController } from "../controllers/playerController";
 import {
   validateCreatePlayer,
+  validateUpdatePlayer,
   validatePlayerId,
 } from "../middleware/validation";
 
-import { PlayerController } from "../controller/playerController";
-
 const router = Router();
+const playerController = new PlayerController();
 
-router.get("/", PlayerController.getAllPlayers);
+// GET /api/players - List all players
+router.get("/", (req, res) => playerController.getAllPlayers(req, res));
 
-router.get("/:playerId", validatePlayerId, PlayerController.getPlayerById);
+// GET /api/players/:playerId - Get player by ID
+router.get("/:playerId", ...validatePlayerId, (req, res) =>
+  playerController.getPlayerById(req, res)
+);
 
-router.post("/", validateCreatePlayer, PlayerController.createPlayer);
+// POST /api/players - Create new player
+router.post("/", ...validateCreatePlayer, (req, res) =>
+  playerController.createPlayer(req, res)
+);
 
-router.put("/:playerId", validatePlayerId, PlayerController.updatePlayer);
+// PUT /api/players/:playerId - Update player
+router.put(
+  "/:playerId",
+  ...validatePlayerId,
+  ...validateUpdatePlayer,
+  (req, res) => playerController.updatePlayer(req, res)
+);
 
-router.delete("/:playerId", validatePlayerId, PlayerController.deletePlayer);
+// DELETE /api/players/:playerId - Delete player
+router.delete("/:playerId", ...validatePlayerId, (req, res) =>
+  playerController.deletePlayer(req, res)
+);
 
-router.get(
-  "/:playerId/stats",
-  validatePlayerId,
-  PlayerController.getPlayerStats
+// GET /api/players/:playerId/stats - Get player stats
+router.get("/:playerId/stats", ...validatePlayerId, (req, res) =>
+  playerController.getPlayerStats(req, res)
 );
 
 export default router;

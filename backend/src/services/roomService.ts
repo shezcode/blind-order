@@ -1,226 +1,459 @@
-import { db } from "../database/database";
-import { GameRoom, Player, GameEvent } from "../lib/types";
+import {
+  IRoomService,
+  Room,
+  CreateRoomData,
+  UpdateRoomData,
+  Player,
+} from "../lib/types";
+import { config } from "../config";
+import { logger } from "../utils/logger";
+import Database from "better-sqlite3";
+import mysql from "mysql2/promise";
+import path from "path";
 
-export class RoomService {
-  // Prepared statements - will be initialized after database setup
-  private static createRoomStmt: any;
-  private static getRoomStmt: any;
-  private static updateRoomStmt: any;
-  private static deleteRoomStmt: any;
-  private static getRoomsStmt: any;
-  private static addPlayerStmt: any;
-  private static removePlayerStmt: any;
-  private static getPlayersStmt: any;
-  private static updatePlayerNumbersStmt: any;
-  private static initialized = false;
+export class RoomService implements IRoomService {
+  private sqlite: Database.Database | null = null;
+  private pool: mysql.Pool | null = null;
 
-  // Initialize prepared statements after database is ready
-  static initialize() {
-    if (this.initialized) return;
-
-    this.createRoomStmt = db.prepare(`
-      INSERT INTO rooms (id, max_lives, numbers_per_player, lives, host_id)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    this.getRoomStmt = db.prepare(`
-      SELECT * FROM rooms WHERE id = ?
-    `);
-
-    this.updateRoomStmt = db.prepare(`
-      UPDATE rooms 
-      SET lives = ?, state = ?, timeline = ?, game_events = ?, host_id = ?
-      WHERE id = ?
-    `);
-
-    this.deleteRoomStmt = db.prepare(`
-      DELETE FROM rooms WHERE id = ?
-    `);
-
-    this.getRoomsStmt = db.prepare(`
-      SELECT r.*, COUNT(p.id) as player_count
-      FROM rooms r
-      LEFT JOIN players p ON r.id = p.room_id
-      GROUP BY r.id
-      ORDER BY r.created_at DESC
-    `);
-
-    this.addPlayerStmt = db.prepare(`
-      INSERT OR REPLACE INTO players (id, room_id, username, numbers)
-      VALUES (?, ?, ?, ?)
-    `);
-
-    this.removePlayerStmt = db.prepare(`
-      DELETE FROM players WHERE id = ?
-    `);
-
-    this.getPlayersStmt = db.prepare(`
-      SELECT * FROM players WHERE room_id = ? ORDER BY joined_at ASC
-    `);
-
-    this.updatePlayerNumbersStmt = db.prepare(`
-      UPDATE players SET numbers = ? WHERE id = ?
-    `);
-
-    this.initialized = true;
-    console.log("RoomService initialized with prepared statements");
+  constructor() {
+    this.initializeDatabase();
   }
 
-  static createRoom(
-    roomId: string,
-    maxLives: number,
-    numbersPerPlayer: number,
-  ): GameRoom {
-    this.initialize(); // Ensure initialized
-    try {
-      this.createRoomStmt.run(roomId, maxLives, numbersPerPlayer, maxLives, "");
+  private initializeDatabase(): void {
+    const dbConfig = config.getDatabase();
 
-      return {
-        id: roomId,
-        players: [],
-        timeline: [],
-        lives: maxLives,
-        maxLives: maxLives,
-        numbersPerPlayer: numbersPerPlayer,
-        state: "lobby",
-        hostId: "",
-        gameEvents: [],
-      };
+    if (dbConfig.type === "sqlite") {
+      this.initializeSQLite();
+    }
+    // MariaDB will be initialized when needed
+  }
+
+  private initializeSQLite(): void {
+    const dataDir = path.join(process.cwd(), "data");
+    const dbPath = path.join(dataDir, "blindorder.db");
+    this.sqlite = new Database(dbPath);
+    this.sqlite.pragma("foreign_keys = ON");
+  }
+
+  private async getMariaDBPool(): Promise<mysql.Pool> {
+    if (!this.pool) {
+      const dbConfig = config.getDatabase();
+      this.pool = mysql.createPool({
+        host: dbConfig.host,
+        port: dbConfig.port,
+        user: dbConfig.username,
+        password: dbConfig.password,
+        database: dbConfig.database,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+      });
+    }
+    return this.pool;
+  }
+
+  public generateRoomId(): string {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
+
+  public async createRoom(data: CreateRoomData): Promise<Room> {
+    const dbConfig = config.getDatabase();
+    const roomId = this.generateRoomId();
+    const now = new Date().toISOString();
+
+    const roomData = {
+      id: roomId,
+      maxLives: data.maxLives,
+      numbersPerPlayer: data.numbersPerPlayer,
+      lives: data.maxLives,
+      state: "lobby" as const,
+      hostId: data.hostId || "",
+      timeline: [],
+      gameEvents: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    try {
+      if (dbConfig.type === "sqlite") {
+        return await this.createRoomSQLite(roomData);
+      } else {
+        return await this.createRoomMariaDB(roomData);
+      }
     } catch (error) {
-      console.error("Error creating room:", error);
+      logger.error("Error creating room:", error);
       throw new Error("Failed to create room");
     }
   }
 
-  static getRoom(roomId: string): GameRoom | null {
-    this.initialize(); // Ensure initialized
+  private async createRoomSQLite(roomData: Room): Promise<Room> {
+    if (!this.sqlite) throw new Error("SQLite not initialized");
+
+    const stmt = this.sqlite.prepare(`
+      INSERT INTO rooms (id, max_lives, numbers_per_player, lives, state, host_id, timeline, game_events)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      roomData.id,
+      roomData.maxLives,
+      roomData.numbersPerPlayer,
+      roomData.lives,
+      roomData.state,
+      roomData.hostId,
+      JSON.stringify(roomData.timeline),
+      JSON.stringify(roomData.gameEvents)
+    );
+
+    return roomData;
+  }
+
+  private async createRoomMariaDB(roomData: Room): Promise<Room> {
+    const pool = await this.getMariaDBPool();
+
+    const [result] = await pool.execute(
+      `
+      INSERT INTO rooms (id, max_lives, numbers_per_player, lives, state, host_id, timeline, game_events)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+      [
+        roomData.id,
+        roomData.maxLives,
+        roomData.numbersPerPlayer,
+        roomData.lives,
+        roomData.state,
+        roomData.hostId,
+        JSON.stringify(roomData.timeline),
+        JSON.stringify(roomData.gameEvents),
+      ]
+    );
+
+    return roomData;
+  }
+
+  public async getRoomById(id: string): Promise<Room | null> {
+    const dbConfig = config.getDatabase();
+
     try {
-      const roomRow = this.getRoomStmt.get(roomId) as any;
-      if (!roomRow) return null;
-
-      const playersRows = this.getPlayersStmt.all(roomId) as any[];
-
-      const players: Player[] = playersRows.map((row) => ({
-        id: row.id,
-        username: row.username,
-        numbers: JSON.parse(row.numbers || "[]"),
-      }));
-
-      return {
-        id: roomRow.id,
-        players: players,
-        timeline: JSON.parse(roomRow.timeline || "[]"),
-        lives: roomRow.lives,
-        maxLives: roomRow.max_lives,
-        numbersPerPlayer: roomRow.numbers_per_player,
-        state: roomRow.state,
-        hostId: roomRow.host_id || "",
-        gameEvents: JSON.parse(roomRow.game_events || "[]"),
-      };
+      if (dbConfig.type === "sqlite") {
+        return await this.getRoomByIdSQLite(id);
+      } else {
+        return await this.getRoomByIdMariaDB(id);
+      }
     } catch (error) {
-      console.error("Error getting room:", error);
+      logger.error("Error getting room:", error);
       return null;
     }
   }
 
-  static updateRoom(room: GameRoom): void {
-    try {
-      this.updateRoomStmt.run(
-        room.lives,
-        room.state,
-        JSON.stringify(room.timeline),
-        JSON.stringify(room.gameEvents),
-        room.hostId,
-        room.id,
-      );
+  private async getRoomByIdSQLite(id: string): Promise<Room | null> {
+    if (!this.sqlite) throw new Error("SQLite not initialized");
 
-      // Update all players
-      for (const player of room.players) {
-        this.updatePlayerNumbersStmt.run(
-          JSON.stringify(player.numbers),
-          player.id,
-        );
+    const stmt = this.sqlite.prepare("SELECT * FROM rooms WHERE id = ?");
+    const row = stmt.get(id) as any;
+
+    if (!row) return null;
+
+    return this.mapSQLiteRowToRoom(row);
+  }
+
+  private async getRoomByIdMariaDB(id: string): Promise<Room | null> {
+    const pool = await this.getMariaDBPool();
+
+    const [rows] = await pool.execute("SELECT * FROM rooms WHERE id = ?", [id]);
+    const roomRows = rows as any[];
+
+    if (roomRows.length === 0) return null;
+
+    return this.mapMariaDBRowToRoom(roomRows[0]);
+  }
+
+  public async updateRoom(
+    id: string,
+    data: UpdateRoomData
+  ): Promise<Room | null> {
+    const dbConfig = config.getDatabase();
+
+    try {
+      if (dbConfig.type === "sqlite") {
+        return await this.updateRoomSQLite(id, data);
+      } else {
+        return await this.updateRoomMariaDB(id, data);
       }
     } catch (error) {
-      console.error("Error updating room:", error);
+      logger.error("Error updating room:", error);
       throw new Error("Failed to update room");
     }
   }
 
-  static deleteRoom(roomId: string): void {
+  private async updateRoomSQLite(
+    id: string,
+    data: UpdateRoomData
+  ): Promise<Room | null> {
+    if (!this.sqlite) throw new Error("SQLite not initialized");
+
+    const existingRoom = await this.getRoomByIdSQLite(id);
+    if (!existingRoom) return null;
+
+    const updatedData = {
+      maxLives: data.maxLives ?? existingRoom.maxLives,
+      numbersPerPlayer: data.numbersPerPlayer ?? existingRoom.numbersPerPlayer,
+      lives: data.lives ?? existingRoom.lives,
+      state: data.state ?? existingRoom.state,
+      hostId: data.hostId ?? existingRoom.hostId,
+      timeline: data.timeline ?? existingRoom.timeline,
+      gameEvents: data.gameEvents ?? existingRoom.gameEvents,
+    };
+
+    const stmt = this.sqlite.prepare(`
+      UPDATE rooms 
+      SET max_lives = ?, numbers_per_player = ?, lives = ?, state = ?, 
+          host_id = ?, timeline = ?, game_events = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      updatedData.maxLives,
+      updatedData.numbersPerPlayer,
+      updatedData.lives,
+      updatedData.state,
+      updatedData.hostId,
+      JSON.stringify(updatedData.timeline),
+      JSON.stringify(updatedData.gameEvents),
+      id
+    );
+
+    return await this.getRoomByIdSQLite(id);
+  }
+
+  private async updateRoomMariaDB(
+    id: string,
+    data: UpdateRoomData
+  ): Promise<Room | null> {
+    const pool = await this.getMariaDBPool();
+
+    const existingRoom = await this.getRoomByIdMariaDB(id);
+    if (!existingRoom) return null;
+
+    const updatedData = {
+      maxLives: data.maxLives ?? existingRoom.maxLives,
+      numbersPerPlayer: data.numbersPerPlayer ?? existingRoom.numbersPerPlayer,
+      lives: data.lives ?? existingRoom.lives,
+      state: data.state ?? existingRoom.state,
+      hostId: data.hostId ?? existingRoom.hostId,
+      timeline: data.timeline ?? existingRoom.timeline,
+      gameEvents: data.gameEvents ?? existingRoom.gameEvents,
+    };
+
+    await pool.execute(
+      `
+      UPDATE rooms 
+      SET max_lives = ?, numbers_per_player = ?, lives = ?, state = ?, 
+          host_id = ?, timeline = ?, game_events = ?
+      WHERE id = ?
+    `,
+      [
+        updatedData.maxLives,
+        updatedData.numbersPerPlayer,
+        updatedData.lives,
+        updatedData.state,
+        updatedData.hostId,
+        JSON.stringify(updatedData.timeline),
+        JSON.stringify(updatedData.gameEvents),
+        id,
+      ]
+    );
+
+    return await this.getRoomByIdMariaDB(id);
+  }
+
+  public async deleteRoom(id: string): Promise<boolean> {
+    const dbConfig = config.getDatabase();
+
     try {
-      this.deleteRoomStmt.run(roomId);
+      if (dbConfig.type === "sqlite") {
+        return await this.deleteRoomSQLite(id);
+      } else {
+        return await this.deleteRoomMariaDB(id);
+      }
     } catch (error) {
-      console.error("Error deleting room:", error);
+      logger.error("Error deleting room:", error);
       throw new Error("Failed to delete room");
     }
   }
 
-  static getAllRooms(): Array<{
-    id: string;
-    playerCount: number;
-    state: string;
-  }> {
+  private async deleteRoomSQLite(id: string): Promise<boolean> {
+    if (!this.sqlite) throw new Error("SQLite not initialized");
+
+    const stmt = this.sqlite.prepare("DELETE FROM rooms WHERE id = ?");
+    const result = stmt.run(id);
+
+    return result.changes > 0;
+  }
+
+  private async deleteRoomMariaDB(id: string): Promise<boolean> {
+    const pool = await this.getMariaDBPool();
+
+    const [result] = await pool.execute("DELETE FROM rooms WHERE id = ?", [id]);
+    const deleteResult = result as any;
+
+    return deleteResult.affectedRows > 0;
+  }
+
+  public async getAllRooms(): Promise<Room[]> {
+    const dbConfig = config.getDatabase();
+
     try {
-      const rows = this.getRoomsStmt.all() as any[];
-      return rows.map((row) => ({
-        id: row.id,
-        playerCount: row.player_count || 0,
-        state: row.state,
-      }));
+      if (dbConfig.type === "sqlite") {
+        return await this.getAllRoomsSQLite();
+      } else {
+        return await this.getAllRoomsMariaDB();
+      }
     } catch (error) {
-      console.error("Error getting all rooms:", error);
+      logger.error("Error getting all rooms:", error);
       return [];
     }
   }
 
-  static addPlayer(roomId: string, player: Player): void {
-    try {
-      this.addPlayerStmt.run(
-        player.id,
-        roomId,
-        player.username,
-        JSON.stringify(player.numbers),
-      );
-    } catch (error) {
-      console.error("Error adding player:", error);
-      throw new Error("Failed to add player");
-    }
+  private async getAllRoomsSQLite(): Promise<Room[]> {
+    if (!this.sqlite) throw new Error("SQLite not initialized");
+
+    const stmt = this.sqlite.prepare(
+      "SELECT * FROM rooms ORDER BY created_at DESC"
+    );
+    const rows = stmt.all() as any[];
+
+    return rows.map((row) => this.mapSQLiteRowToRoom(row));
   }
 
-  static removePlayer(playerId: string): void {
-    try {
-      this.removePlayerStmt.run(playerId);
-    } catch (error) {
-      console.error("Error removing player:", error);
-      throw new Error("Failed to remove player");
-    }
+  private async getAllRoomsMariaDB(): Promise<Room[]> {
+    const pool = await this.getMariaDBPool();
+
+    const [rows] = await pool.execute(
+      "SELECT * FROM rooms ORDER BY created_at DESC"
+    );
+    const roomRows = rows as any[];
+
+    return roomRows.map((row) => this.mapMariaDBRowToRoom(row));
   }
 
-  static setHost(roomId: string, hostId: string): void {
-    try {
-      db.prepare("UPDATE rooms SET host_id = ? WHERE id = ?").run(
-        hostId,
-        roomId,
-      );
-    } catch (error) {
-      console.error("Error setting host:", error);
-      throw new Error("Failed to set host");
-    }
-  }
+  public async getRoomPlayers(roomId: string): Promise<Player[]> {
+    const dbConfig = config.getDatabase();
 
-  // Get rooms that haven't been updated recently (for cleanup)
-  static getInactiveRooms(hoursAgo: number = 24): string[] {
     try {
-      const stmt = db.prepare(`
-        SELECT id FROM rooms 
-        WHERE updated_at < datetime('now', '-${hoursAgo} hours')
-      `);
-      const rows = stmt.all() as any[];
-      return rows.map((row) => row.id);
+      if (dbConfig.type === "sqlite") {
+        return await this.getRoomPlayersSQLite(roomId);
+      } else {
+        return await this.getRoomPlayersMariaDB(roomId);
+      }
     } catch (error) {
-      console.error("Error getting inactive rooms:", error);
+      logger.error("Error getting room players:", error);
       return [];
+    }
+  }
+
+  private async getRoomPlayersSQLite(roomId: string): Promise<Player[]> {
+    if (!this.sqlite) throw new Error("SQLite not initialized");
+
+    const stmt = this.sqlite.prepare(
+      "SELECT * FROM players WHERE room_id = ? ORDER BY joined_at ASC"
+    );
+    const rows = stmt.all(roomId) as any[];
+
+    return rows.map((row) => this.mapSQLiteRowToPlayer(row));
+  }
+
+  private async getRoomPlayersMariaDB(roomId: string): Promise<Player[]> {
+    const pool = await this.getMariaDBPool();
+
+    const [rows] = await pool.execute(
+      "SELECT * FROM players WHERE room_id = ? ORDER BY joined_at ASC",
+      [roomId]
+    );
+    const playerRows = rows as any[];
+
+    return playerRows.map((row) => this.mapMariaDBRowToPlayer(row));
+  }
+
+  public async resetRoom(roomId: string): Promise<Room | null> {
+    const room = await this.getRoomById(roomId);
+    if (!room) return null;
+
+    const resetData: UpdateRoomData = {
+      lives: room.maxLives,
+      state: "lobby",
+      timeline: [],
+      gameEvents: [],
+    };
+
+    return await this.updateRoom(roomId, resetData);
+  }
+
+  // Helper methods to map database rows to objects
+  private mapSQLiteRowToRoom(row: any): Room {
+    return {
+      id: row.id,
+      maxLives: row.max_lives,
+      numbersPerPlayer: row.numbers_per_player,
+      lives: row.lives,
+      state: row.state,
+      hostId: row.host_id || "",
+      timeline: JSON.parse(row.timeline || "[]"),
+      gameEvents: JSON.parse(row.game_events || "[]"),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private mapMariaDBRowToRoom(row: any): Room {
+    return {
+      id: row.id,
+      maxLives: row.max_lives,
+      numbersPerPlayer: row.numbers_per_player,
+      lives: row.lives,
+      state: row.state,
+      hostId: row.host_id || "",
+      timeline: Array.isArray(row.timeline)
+        ? row.timeline
+        : JSON.parse(row.timeline || "[]"),
+      gameEvents: Array.isArray(row.game_events)
+        ? row.game_events
+        : JSON.parse(row.game_events || "[]"),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private mapSQLiteRowToPlayer(row: any): Player {
+    return {
+      id: row.id,
+      roomId: row.room_id,
+      username: row.username,
+      numbers: JSON.parse(row.numbers || "[]"),
+      joinedAt: row.joined_at,
+    };
+  }
+
+  private mapMariaDBRowToPlayer(row: any): Player {
+    return {
+      id: row.id,
+      roomId: row.room_id,
+      username: row.username,
+      numbers: Array.isArray(row.numbers)
+        ? row.numbers
+        : JSON.parse(row.numbers || "[]"),
+      joinedAt: row.joined_at,
+    };
+  }
+
+  public async close(): Promise<void> {
+    if (this.sqlite) {
+      this.sqlite.close();
+      this.sqlite = null;
+    }
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = null;
     }
   }
 }
