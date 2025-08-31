@@ -1,0 +1,17 @@
+{
+  "port": 3002,
+  "database": {
+    "host": "localhost",
+    "port": 3307,
+    "username": "test_user",
+    "password": "test_password",
+    "database": "blindorder_test",
+    "type": "mariadb"
+  },
+  "cors": {
+    "origin": ["http://localhost:5173"]
+  },
+  "logging": {
+    "level": "error"
+  }
+}

@@ -1,0 +1,7 @@
+- [ ] user updates not working
+- [ ] refreshing browser duplicates user
+- [ ] mariadb database
+- [ ] unit testing
+- [ ] integration testing
+- [ ] github actions
+- [x] refactor to controller

@@ -1,0 +1,17 @@
+{
+  "port": 3001,
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "username": "blindorder",
+    "password": "secure_password",
+    "database": "blindorder_prod",
+    "type": "mariadb"
+  },
+  "cors": {
+    "origin": ["https://frontend.com"]
+  },
+  "logging": {
+    "level": "info"
+  }
+}
