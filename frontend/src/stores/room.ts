@@ -24,7 +24,10 @@ export interface GameMove {
 
 export interface GameEvent {
   type: 'move-made' | 'move-failed' | 'game-started' | 'game-ended' | 'game-reset';
-  data: any;
+  data:
+    | { playerId: string; playerName: string; number: number; timeline: number[] } // move-made
+    | { error: string } // move-failed
+    | object; // game-started, game-ended, game-reset (if no extra data)
   timestamp: number;
 }
 
@@ -63,6 +66,11 @@ export const useRoomStore = defineStore('room', () => {
     });
 
     socket.on('room-updated', (room) => {
+      console.log('Frontend received room-updated: ', {
+        playersCount: room.players?.length,
+        players: room.players?.map((p: Player) => ({ id: p.id, username: p.username })),
+      });
+
       players.value = room.players || [];
       hostId.value = room.hostId;
       isHost.value = room.hostId === socket.id;

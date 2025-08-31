@@ -1,4 +1,4 @@
-import { GameRoom, GameEvent } from "./types";
+import { Room, GameEvent, Player } from "./types";
 
 export interface GameConfig {
   maxLives: number;
@@ -17,7 +17,7 @@ export interface GameMove {
 export class GameEngine {
   static generateAllPlayerNumbers(
     config: GameConfig,
-    playerCount: number,
+    playerCount: number
   ): number[][] {
     const totalNumbers = playerCount * config.numbersPerPlayer;
     const range = config.maxNumber - config.minNumber + 1;
@@ -25,7 +25,7 @@ export class GameEngine {
     // Check if we have enough numbers in the range
     if (totalNumbers > range) {
       throw new Error(
-        `Not enough unique numbers in range. Need ${totalNumbers}, but range only has ${range} numbers.`,
+        `Not enough unique numbers in range. Need ${totalNumbers}, but range only has ${range} numbers.`
       );
     }
 
@@ -58,7 +58,7 @@ export class GameEngine {
     return playerNumbers;
   }
 
-  static initializeGame(room: GameRoom): void {
+  static initializeGame(room: Room): void {
     const config: GameConfig = {
       maxLives: room.maxLives,
       numbersPerPlayer: room.numbersPerPlayer,
@@ -70,11 +70,11 @@ export class GameEngine {
       // Generate all numbers ensuring no duplicates across players
       const allPlayerNumbers = this.generateAllPlayerNumbers(
         config,
-        room.players.length,
+        room.players?.length ?? 0
       );
 
       // Assign numbers to each player
-      room.players.forEach((player, index) => {
+      room.players?.forEach((player, index) => {
         player.numbers = allPlayerNumbers[index];
       });
 
@@ -89,9 +89,9 @@ export class GameEngine {
   }
 
   static validateMove(
-    room: GameRoom,
+    room: Room,
     playerId: string,
-    number: number,
+    number: number
   ): {
     valid: boolean;
     error?: string;
@@ -102,7 +102,7 @@ export class GameEngine {
     }
 
     // Find the player
-    const player = room.players.find((p) => p.id === playerId);
+    const player = room.players?.find((p) => p.id === playerId);
     if (!player) {
       return { valid: false, error: "Player not found" };
     }
@@ -129,11 +129,12 @@ export class GameEngine {
     return { valid: true };
   }
 
-  static getNextExpectedNumber(room: GameRoom): number {
+  static getNextExpectedNumber(room: Room): number {
     // Get all numbers from all players
-    const allNumbers = room.players
-      .flatMap((p) => p.numbers)
-      .sort((a, b) => a - b);
+    const allNumbers =
+      room.players
+        ?.flatMap((p: Player) => p.numbers)
+        .sort((a: number, b: number) => a - b) ?? [];
 
     // Find the smallest number not yet played
     for (const num of allNumbers) {
@@ -147,9 +148,9 @@ export class GameEngine {
   }
 
   static makeMove(
-    room: GameRoom,
+    room: Room,
     playerId: string,
-    number: number,
+    number: number
   ): {
     success: boolean;
     gameOver?: boolean;
@@ -184,11 +185,11 @@ export class GameEngine {
     room.timeline.push(number);
 
     // Remove number from player's hand
-    const player = room.players.find((p) => p.id === playerId)!;
+    const player = room.players?.find((p) => p.id === playerId)!;
     player.numbers = player.numbers.filter((n) => n !== number);
 
     // Check for victory condition
-    const allNumbersPlayed = room.players.every((p) => p.numbers.length === 0);
+    const allNumbersPlayed = room.players?.every((p) => p.numbers.length === 0);
     if (allNumbersPlayed) {
       room.state = "victory";
       return { success: true, victory: true };
@@ -197,11 +198,11 @@ export class GameEngine {
     return { success: true };
   }
 
-  static getGameState(room: GameRoom) {
+  static getGameState(room: Room) {
     const allNumbers = room.players
-      .flatMap((p) => p.numbers)
-      .sort((a, b) => a - b);
-    const totalNumbers = room.players.length * room.numbersPerPlayer;
+      ?.flatMap((p: Player) => p.numbers)
+      .sort((a: number, b: number) => a - b);
+    const totalNumbers = (room.players?.length ?? 0) * room.numbersPerPlayer;
     const playedNumbers = room.timeline.length;
     const progress =
       totalNumbers > 0 ? (playedNumbers / totalNumbers) * 100 : 0;
@@ -212,12 +213,12 @@ export class GameEngine {
       maxLives: room.maxLives,
       timeline: room.timeline,
       progress: Math.round(progress),
-      remainingNumbers: allNumbers.filter((n) => !room.timeline.includes(n)),
+      remainingNumbers: allNumbers?.filter((n) => !room.timeline.includes(n)),
       gameEvents: room.gameEvents,
     };
   }
 
-  static addGameEvent(room: GameRoom, event: Omit<GameEvent, "id">): void {
+  static addGameEvent(room: Room, event: Omit<GameEvent, "id">): void {
     const gameEvent: GameEvent = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       ...event,
@@ -231,8 +232,8 @@ export class GameEngine {
     }
   }
 
-  static resetGame(room: GameRoom): void {
-    room.players.forEach((player) => {
+  static resetGame(room: Room): void {
+    room.players?.forEach((player) => {
       player.numbers = [];
     });
     room.timeline = [];

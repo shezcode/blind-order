@@ -1,7 +1,7 @@
 import mysql from "mysql2/promise";
 import { config } from "./index";
-import { logger } from "../utils/logger";
-import { GameRoom } from "../lib/types";
+import { logger } from "../src/utils/logger";
+import { Room } from "../src/lib/types";
 
 export class DatabaseManager {
   private connection: mysql.Connection | null = null;
@@ -103,7 +103,7 @@ export class DatabaseManager {
         return;
       }
 
-      const sampleRooms: GameRoom[] = [
+      const sampleRooms: Room[] = [
         {
           id: "DEMO01",
           players: [],
@@ -114,6 +114,8 @@ export class DatabaseManager {
           hostId: "",
           timeline: [],
           gameEvents: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         {
           id: "DEMO02",
@@ -125,6 +127,8 @@ export class DatabaseManager {
           hostId: "",
           timeline: [],
           gameEvents: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
       ];
       const insertRoomQuery = `

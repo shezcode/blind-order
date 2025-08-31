@@ -30,16 +30,17 @@ class ConfigManager {
   private loadConfig(): AppConfig {
     const env = process.env.NODE_ENV || "development";
 
+    // Default configuration
     const defaultConfig: AppConfig = {
       port: 3001,
       nodeEnv: env,
       database: {
         host: "localhost",
         port: 3306,
-        username: "blindorder",
-        password: "password",
-        database: "blindorder_db",
-        type: "mariadb",
+        username: "blindorder_dev",
+        password: "dev_password",
+        database: "blindorder_dev",
+        type: "mariadb", // Use MariaDB for all environments
       },
       cors: {
         origin: ["http://localhost:5173", "http://localhost:3000"],
@@ -50,19 +51,19 @@ class ConfigManager {
     };
 
     try {
+      // Load environment-specific config file
       const configPath = path.join(process.cwd(), "config", `${env}.json`);
 
       if (fs.existsSync(configPath)) {
-        const fileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-        this.config = this.mergeConfig(defaultConfig, fileConfig);
+        const fileConfig = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        const mergedConfig = this.mergeConfig(defaultConfig, fileConfig);
+        return this.overrideWithEnvVars(mergedConfig);
       } else {
-        this.config = defaultConfig;
+        return this.overrideWithEnvVars(defaultConfig);
       }
-
-      this.config = this.overrideWithEnvVars(this.config);
     } catch (error) {
-      console.error("Error loading config: ", error);
-      return defaultConfig;
+      console.error("Error loading configuration:", error);
+      return this.overrideWithEnvVars(defaultConfig);
     }
   }
 
@@ -130,4 +131,5 @@ class ConfigManager {
   }
 }
 
+// Export singleton instance
 export const config = new ConfigManager();

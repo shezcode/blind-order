@@ -5,8 +5,10 @@ import cors from "cors";
 import path from "path";
 import fs from "fs";
 
+import * as database from "../config/database";
+
 // Import configuration and utilities
-import { config } from "./config";
+import { config } from "../config/index";
 import { logger } from "./utils/logger";
 
 // Import routes
@@ -77,18 +79,9 @@ app.use(
   }
 );
 
-// Handle 404
-app.use("*", (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: `Route ${req.originalUrl} not found`,
-  });
-});
-
 // Initialize server
 const startServer = async () => {
   try {
-    // Ensure logs directory exists
     const logsDir = path.join(process.cwd(), "logs");
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
@@ -96,12 +89,16 @@ const startServer = async () => {
 
     const port = config.getPort();
 
+    await database.database.initialize();
+
     server.listen(port, () => {
       logger.info(`🚀 BlindOrder API v2.0 started`, {
         port,
         environment: config.get().nodeEnv,
         databaseType: config.getDatabase().type,
       });
+
+      console.log(`Server running on http://localhost:${port}`);
     });
   } catch (error) {
     logger.error("Failed to start server:", error);
@@ -109,34 +106,4 @@ const startServer = async () => {
   }
 };
 
-// Graceful shutdown
-const shutdown = async () => {
-  logger.info("Shutting down server...");
-
-  server.close(() => {
-    logger.info("Server shut down successfully");
-    process.exit(0);
-  });
-
-  // Force shutdown after 10 seconds
-  setTimeout(() => {
-    logger.error("Forced shutdown");
-    process.exit(1);
-  }, 10000);
-};
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
-
-// Handle unhandled promises
-process.on("unhandledRejection", (reason, promise) => {
-  logger.error("Unhandled Rejection at:", { promise, reason });
-});
-
-process.on("uncaughtException", (error) => {
-  logger.error("Uncaught Exception:", error);
-  shutdown();
-});
-
-// Start the server
 startServer();
