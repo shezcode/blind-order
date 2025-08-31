@@ -1,0 +1,366 @@
+import { Request, Response } from "express";
+import { RoomController } from "../../../src/controllers/roomController";
+import { Room, Player } from "../../../src/lib/types";
+import { mockRoom, mockPlayer } from "../../helpers/setup";
+
+// Mock the services before importing
+jest.mock("../../../src/services/roomService");
+jest.mock("../../../src/services/playerService");
+jest.mock("../../../src/utils/logger", () => ({
+  logger: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+  },
+}));
+
+describe("RoomController", () => {
+  let roomController: RoomController;
+  let mockRequest: Partial<Request>;
+  let mockResponse: Partial<Response>;
+  let responseJson: jest.Mock;
+  let responseStatus: jest.Mock;
+
+  beforeEach(() => {
+    // Clear all mocks
+    jest.clearAllMocks();
+
+    // Setup response mocks
+    responseJson = jest.fn();
+    responseStatus = jest.fn().mockReturnThis();
+
+    mockResponse = {
+      json: responseJson,
+      status: responseStatus,
+    };
+
+    mockRequest = {
+      params: {},
+      body: {},
+      query: {},
+    };
+
+    // Create controller instance (this will use the mocked services)
+    roomController = new RoomController();
+  });
+
+  describe("getAllRooms", () => {
+    it("should return all rooms with player counts", async () => {
+      const rooms: Room[] = [
+        mockRoom({ id: "ROOM1" }),
+        mockRoom({ id: "ROOM2" }),
+      ];
+      const players: Player[] = [
+        mockPlayer(),
+        mockPlayer({ id: "player-456" }),
+      ];
+
+      // Mock the service methods
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.getAllRooms = jest.fn().mockResolvedValue(rooms);
+      roomService.prototype.getRoomPlayers = jest
+        .fn()
+        .mockResolvedValue(players);
+
+      // Create new controller to get the mocked service
+      roomController = new RoomController();
+
+      await roomController.getAllRooms(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(roomService.prototype.getAllRooms).toHaveBeenCalled();
+      expect(roomService.prototype.getRoomPlayers).toHaveBeenCalledTimes(2);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: true,
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            id: "ROOM1",
+            playerCount: 2,
+          }),
+          expect.objectContaining({
+            id: "ROOM2",
+            playerCount: 2,
+          }),
+        ]),
+        total: 2,
+      });
+    });
+
+    it("should handle errors gracefully", async () => {
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.getAllRooms = jest
+        .fn()
+        .mockRejectedValue(new Error("Database error"));
+
+      roomController = new RoomController();
+
+      await roomController.getAllRooms(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(responseStatus).toHaveBeenCalledWith(500);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: false,
+        error: "Failed to fetch rooms",
+      });
+    });
+  });
+
+  describe("getRoomById", () => {
+    it("should return a room by id with players", async () => {
+      const room: Room = mockRoom({ id: "ROOM123" });
+      const players: Player[] = [mockPlayer()];
+
+      mockRequest.params = { roomId: "ROOM123" };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.getRoomById = jest.fn().mockResolvedValue(room);
+      roomService.prototype.getRoomPlayers = jest
+        .fn()
+        .mockResolvedValue(players);
+
+      roomController = new RoomController();
+
+      await roomController.getRoomById(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(roomService.prototype.getRoomById).toHaveBeenCalledWith("ROOM123");
+      expect(responseJson).toHaveBeenCalledWith({
+        success: true,
+        data: expect.objectContaining({
+          id: "ROOM123",
+          players,
+          playerCount: 1,
+        }),
+      });
+    });
+
+    it("should return 404 if room not found", async () => {
+      mockRequest.params = { roomId: "NOTFOUND" };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.getRoomById = jest.fn().mockResolvedValue(null);
+
+      roomController = new RoomController();
+
+      await roomController.getRoomById(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(responseStatus).toHaveBeenCalledWith(404);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: false,
+        error: "Room not found",
+      });
+    });
+  });
+
+  describe("createRoom", () => {
+    it("should create a new room", async () => {
+      const newRoom: Room = mockRoom({ id: "NEW123" });
+      mockRequest.body = {
+        maxLives: 5,
+        numbersPerPlayer: 8,
+      };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.createRoom = jest.fn().mockResolvedValue(newRoom);
+
+      roomController = new RoomController();
+
+      await roomController.createRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      // The controller might add default values, so let's check what was actually called
+      expect(roomService.prototype.createRoom).toHaveBeenCalled();
+      const callArgs = roomService.prototype.createRoom.mock.calls[0][0];
+      expect(callArgs.maxLives).toBe(5);
+      expect(callArgs.numbersPerPlayer).toBe(8);
+
+      expect(responseStatus).toHaveBeenCalledWith(201);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: true,
+        data: newRoom,
+      });
+    });
+
+    it("should handle creation errors", async () => {
+      mockRequest.body = { maxLives: 3 };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.createRoom = jest
+        .fn()
+        .mockRejectedValue(new Error("Creation failed"));
+
+      roomController = new RoomController();
+
+      await roomController.createRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(responseStatus).toHaveBeenCalledWith(500);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: false,
+        error: "Failed to create room",
+      });
+    });
+  });
+
+  describe("updateRoom", () => {
+    it("should update an existing room", async () => {
+      const updatedRoom: Room = mockRoom({ id: "ROOM123", maxLives: 5 });
+      mockRequest.params = { roomId: "ROOM123" };
+      mockRequest.body = { maxLives: 5 };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.updateRoom = jest
+        .fn()
+        .mockResolvedValue(updatedRoom);
+
+      roomController = new RoomController();
+
+      await roomController.updateRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(roomService.prototype.updateRoom).toHaveBeenCalled();
+      expect(responseJson).toHaveBeenCalledWith({
+        success: true,
+        data: updatedRoom,
+      });
+    });
+
+    it("should return 404 if room not found for update", async () => {
+      mockRequest.params = { roomId: "NOTFOUND" };
+      mockRequest.body = { maxLives: 5 };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.updateRoom = jest.fn().mockResolvedValue(null);
+
+      roomController = new RoomController();
+
+      await roomController.updateRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(responseStatus).toHaveBeenCalledWith(404);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: false,
+        error: "Room not found",
+      });
+    });
+  });
+
+  describe("deleteRoom", () => {
+    it("should delete a room successfully", async () => {
+      mockRequest.params = { roomId: "ROOM123" };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.deleteRoom = jest.fn().mockResolvedValue(true);
+
+      roomController = new RoomController();
+
+      await roomController.deleteRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(roomService.prototype.deleteRoom).toHaveBeenCalledWith("ROOM123");
+      expect(responseJson).toHaveBeenCalledWith({
+        success: true,
+        message: "Room deleted successfully",
+      });
+    });
+
+    it("should return 404 if room not found for deletion", async () => {
+      mockRequest.params = { roomId: "NOTFOUND" };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.deleteRoom = jest.fn().mockResolvedValue(false);
+
+      roomController = new RoomController();
+
+      await roomController.deleteRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(responseStatus).toHaveBeenCalledWith(404);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: false,
+        error: "Room not found",
+      });
+    });
+  });
+
+  describe("resetRoom", () => {
+    it("should reset a room to lobby state", async () => {
+      const resetRoom: Room = mockRoom({
+        id: "ROOM123",
+        state: "lobby",
+        timeline: [],
+      });
+      mockRequest.params = { roomId: "ROOM123" };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.resetRoom = jest.fn().mockResolvedValue(resetRoom);
+
+      roomController = new RoomController();
+
+      await roomController.resetRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(roomService.prototype.resetRoom).toHaveBeenCalledWith("ROOM123");
+      expect(responseJson).toHaveBeenCalledWith({
+        success: true,
+        data: resetRoom,
+        message: "Room reset successfully",
+      });
+    });
+
+    it("should return 404 if room not found for reset", async () => {
+      mockRequest.params = { roomId: "NOTFOUND" };
+
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+      roomService.prototype.resetRoom = jest.fn().mockResolvedValue(null);
+
+      roomController = new RoomController();
+
+      await roomController.resetRoom(
+        mockRequest as Request,
+        mockResponse as Response
+      );
+
+      expect(responseStatus).toHaveBeenCalledWith(404);
+      expect(responseJson).toHaveBeenCalledWith({
+        success: false,
+        error: "Room not found",
+      });
+    });
+  });
+});
