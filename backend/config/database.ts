@@ -1,30 +1,77 @@
+import Database from "better-sqlite3";
 import mysql from "mysql2/promise";
+import path from "path";
+import fs from "fs";
 import { config } from "./index";
 import { logger } from "../src/utils/logger";
-import { Room } from "../src/lib/types";
 
-export class DatabaseManager {
-  private connection: mysql.Connection | null = null;
+class DatabaseManager {
+  private sqlite: Database.Database | null = null;
   private pool: mysql.Pool | null = null;
 
-  async initialize(): Promise<void> {
-    try {
-      const dbConfig = config.getDatabase();
+  public async initialize(): Promise<void> {
+    const dbConfig = config.getDatabase();
 
-      if (dbConfig.type === "mariadb") {
-        await this.initializeMariaDB();
-      } else {
-        throw new Error(`Unsupported database type: ${dbConfig.type}`);
-      }
-
-      await this.createTables();
-      await this.seedDatabase();
-
-      logger.info("Database initialized successfully");
-    } catch (error) {
-      logger.error("Failed to init database: ", error);
-      throw error;
+    if (dbConfig.type === "sqlite") {
+      this.initializeSQLite();
+    } else {
+      await this.initializeMariaDB();
     }
+  }
+
+  private initializeSQLite(): void {
+    const dataDir = path.join(process.cwd(), "data");
+
+    // Create data directory if it doesn't exist
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    // Use test.db for test environment, blindorder.db for others
+    const dbFileName =
+      process.env.NODE_ENV === "test" ? "test.db" : "blindorder.db";
+    const dbPath = path.join(dataDir, dbFileName);
+
+    // Only log in non-test environments
+    if (process.env.NODE_ENV !== "test") {
+      logger.info(`Initializing SQLite database at ${dbPath}`);
+    }
+
+    this.sqlite = new Database(dbPath);
+    this.sqlite.pragma("foreign_keys = ON");
+
+    // Create tables
+    this.createSQLiteTables();
+  }
+
+  private createSQLiteTables(): void {
+    if (!this.sqlite) return;
+
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id TEXT PRIMARY KEY,
+        max_lives INTEGER NOT NULL DEFAULT 3,
+        numbers_per_player INTEGER NOT NULL DEFAULT 6,
+        lives INTEGER NOT NULL DEFAULT 3,
+        state TEXT NOT NULL DEFAULT 'lobby' CHECK (state IN ('lobby', 'playing', 'game-over', 'victory')),
+        host_id TEXT,
+        timeline TEXT DEFAULT '[]',
+        game_events TEXT DEFAULT '[]',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS players (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        numbers TEXT DEFAULT '[]',
+        joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (room_id) REFERENCES rooms (id) ON DELETE CASCADE
+      )
+    `);
   }
 
   private async initializeMariaDB(): Promise<void> {
@@ -41,144 +88,67 @@ export class DatabaseManager {
       queueLimit: 0,
     });
 
-    const connection = await this.pool.getConnection();
-    await connection.ping();
-    connection.release();
+    // Test connection
+    try {
+      const connection = await this.pool.getConnection();
+      if (process.env.NODE_ENV !== "test") {
+        logger.info("MariaDB connection established");
+      }
+      connection.release();
+
+      // Create tables
+      await this.createMariaDBTables();
+    } catch (error) {
+      logger.error("Failed to connect to MariaDB:", error);
+      throw error;
+    }
   }
 
-  private async createTables(): Promise<void> {
-    if (!this.pool) throw new Error("Database not initialized");
+  private async createMariaDBTables(): Promise<void> {
+    if (!this.pool) return;
 
-    const createRoomsTable = `
+    await this.pool.execute(`
       CREATE TABLE IF NOT EXISTS rooms (
-        id VARCHAR(255) PRIMARY KEY,
+        id VARCHAR(10) PRIMARY KEY,
         max_lives INT NOT NULL DEFAULT 3,
         numbers_per_player INT NOT NULL DEFAULT 6,
         lives INT NOT NULL DEFAULT 3,
         state ENUM('lobby', 'playing', 'game-over', 'victory') NOT NULL DEFAULT 'lobby',
-        host_id VARCHAR(255),
+        host_id VARCHAR(50),
         timeline JSON DEFAULT '[]',
         game_events JSON DEFAULT '[]',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_state (state),
-        INDEX idx_created_at (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `;
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
 
-    const createPlayersTable = `
+    await this.pool.execute(`
       CREATE TABLE IF NOT EXISTS players (
-        id VARCHAR(255) PRIMARY KEY,
-        room_id VARCHAR(255) NOT NULL,
-        username VARCHAR(255) NOT NULL,
+        id VARCHAR(50) PRIMARY KEY,
+        room_id VARCHAR(10) NOT NULL,
+        username VARCHAR(50) NOT NULL,
         numbers JSON DEFAULT '[]',
-        joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
-        INDEX idx_room_id (room_id),
-        INDEX idx_username (username)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `;
-
-    try {
-      await this.pool.execute(createRoomsTable);
-      await this.pool.execute(createPlayersTable);
-      logger.info("Database tables created successfully");
-    } catch (error) {
-      logger.error("Failed to create tables", error);
-      throw error;
-    }
+        INDEX idx_room_id (room_id)
+      )
+    `);
   }
 
-  private async seedDatabase(): Promise<void> {
-    if (!this.pool) return;
-
-    try {
-      const [rooms] = await this.pool.execute(
-        "SELECT COUNT(*) as count FROM rooms"
-      );
-      const roomCount = (rooms as any[])[0].count;
-
-      if (roomCount > 0) {
-        logger.info("Database already contains data, skipping seed");
-        return;
-      }
-
-      const sampleRooms: Room[] = [
-        {
-          id: "DEMO01",
-          players: [],
-          maxLives: 3,
-          numbersPerPlayer: 6,
-          lives: 3,
-          state: "lobby",
-          hostId: "",
-          timeline: [],
-          gameEvents: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        {
-          id: "DEMO02",
-          players: [],
-          maxLives: 5,
-          numbersPerPlayer: 8,
-          lives: 5,
-          state: "lobby",
-          hostId: "",
-          timeline: [],
-          gameEvents: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ];
-      const insertRoomQuery = `
-        INSERT INTO rooms (id, max_lives, numbers_per_player, lives, state, host_id, timeline, game_events)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-
-      for (const room of sampleRooms) {
-        await this.pool.execute(insertRoomQuery, [
-          room.id,
-          room.maxLives,
-          room.numbersPerPlayer,
-          room.lives,
-          room.state,
-          room.hostId,
-          room.timeline,
-          room.gameEvents,
-        ]);
-      }
-
-      logger.info(`Seeded ${sampleRooms.length} sample rooms`);
-    } catch (error) {
-      logger.error("Failed to seed db", error);
-    }
+  public getSQLite(): Database.Database | null {
+    return this.sqlite;
   }
 
-  public getPool(): mysql.Pool {
-    if (!this.pool) {
-      throw new Error("Db not initialized");
-    }
+  public getPool(): mysql.Pool | null {
     return this.pool;
   }
 
-  public async query(sql: string, params?: any[]): Promise<any> {
-    if (!this.pool) throw new Error("Db not initialized");
-
-    try {
-      const [results] = await this.pool.execute(sql, params);
-      return results;
-    } catch (error) {
-      logger.error("Db query failed", { sql, params, error });
-      throw error;
-    }
-  }
-
   public async close(): Promise<void> {
+    if (this.sqlite) {
+      this.sqlite.close();
+    }
     if (this.pool) {
       await this.pool.end();
-      this.pool = null;
-      logger.info("Db connection closed");
     }
   }
 }

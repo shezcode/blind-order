@@ -11,13 +11,12 @@ import * as database from "../config/database";
 import { config } from "../config/index";
 import { logger } from "./utils/logger";
 
-// Import routes
 import roomRoutes from "./routes/rooms";
 import playerRoutes from "./routes/players";
 
 import { setupSocketHandlers } from "./socket/handlers";
 
-const app = express();
+export const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: { origin: config.getCorsOrigins() },
@@ -56,6 +55,14 @@ app.use("/rooms", roomRoutes);
 
 setupSocketHandlers(io);
 
+// 404 handler for undefined routes
+app.use((req: express.Request, res: express.Response) => {
+  res.status(404).json({
+    success: false,
+    error: `Route ${req.path} not found`,
+  });
+});
+
 // Error handling middleware
 app.use(
   (
@@ -79,7 +86,7 @@ app.use(
   }
 );
 
-// Initialize server
+// Initialize server - only run if this file is executed directly
 const startServer = async () => {
   try {
     const logsDir = path.join(process.cwd(), "logs");
@@ -106,4 +113,10 @@ const startServer = async () => {
   }
 };
 
-startServer();
+// Only start the server if this module is run directly (not imported for tests)
+if (require.main === module) {
+  startServer();
+}
+
+// Export for testing
+export { server, io };
