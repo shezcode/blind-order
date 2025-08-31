@@ -1,28 +1,78 @@
-version: '3.8'
+# docker-compose.yml - Full stack with MariaDB
+version: "3.8"
 
 services:
+  mariadb:
+    image: mariadb:lts-ubi9
+    container_name: blindorder-mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: blindorder_dev
+      MYSQL_USER: blindorder_dev
+      MYSQL_PASSWORD: dev_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./backend/docker/mariadb/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - blindorder-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      timeout: 10s
+      retries: 5
+      interval: 10s
+
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: blindorder-backend
+    restart: unless-stopped
     ports:
       - "3001:3001"
     volumes:
-      - ./backend:/app
+      - ./backend/src:/app/src:ro
+      - ./backend/config:/app/config:ro
+      - ./backend/logs:/app/logs
       - /app/node_modules
-      - backend_data:/app/data
     environment:
-      - NODE_ENV=development
+      NODE_ENV: development
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_USERNAME: blindorder_dev
+      DB_PASSWORD: dev_password
+      DB_NAME: blindorder_dev
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - blindorder-network
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: blindorder-frontend
+    restart: unless-stopped
     ports:
       - "5173:5173"
     volumes:
-      - ./frontend:/app
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:3001
+      VITE_API_URL: http://localhost:3001
     depends_on:
       - backend
+    networks:
+      - blindorder-network
 
 volumes:
-  backend_data:
+  mariadb_data:
+    driver: local
+
+networks:
+  blindorder-network:
+    driver: bridge

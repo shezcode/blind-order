@@ -5,7 +5,7 @@ import {
   UpdateRoomData,
   Player,
 } from "../lib/types";
-import { config } from "../config";
+import { config } from "../../config/index";
 import { logger } from "../utils/logger";
 import Database from "better-sqlite3";
 import mysql from "mysql2/promise";
