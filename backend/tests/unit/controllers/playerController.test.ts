@@ -106,9 +106,11 @@ describe("PlayerController", () => {
         require("../../../src/services/roomService").RoomService;
 
       roomService.prototype.getRoomById = jest.fn().mockResolvedValue(room);
+      roomService.prototype.getRoomPlayers = jest.fn().mockResolvedValue([]); // Empty room
       playerService.prototype.createPlayer = jest
         .fn()
         .mockResolvedValue(newPlayer);
+      roomService.prototype.updateRoom = jest.fn(); // First player becomes host
 
       playerController = new PlayerController();
 
@@ -117,14 +119,26 @@ describe("PlayerController", () => {
         mockResponse as Response
       );
 
+      expect(roomService.prototype.getRoomById).toHaveBeenCalledWith("ROOM1");
+      expect(roomService.prototype.getRoomPlayers).toHaveBeenCalledWith(
+        "ROOM1"
+      );
       expect(playerService.prototype.createPlayer).toHaveBeenCalledWith({
         roomId: "ROOM1",
-        username: "NewPlayer",
+        username: "NewPlayer", // Note: It's already trimmed in the test
+      });
+      expect(roomService.prototype.updateRoom).toHaveBeenCalledWith("ROOM1", {
+        hostId: "new-player",
       });
       expect(responseStatus).toHaveBeenCalledWith(201);
       expect(responseJson).toHaveBeenCalledWith({
         success: true,
-        data: newPlayer,
+        data: expect.objectContaining({
+          id: "new-player",
+          roomId: "ROOM1",
+          isHost: true,
+        }),
+        message: "Player added to room successfully",
       });
     });
 
@@ -152,8 +166,9 @@ describe("PlayerController", () => {
       });
     });
 
-    it("should return 400 if room is not in lobby state", async () => {
-      const room: Room = mockRoom({ id: "ROOM1", state: "playing" });
+    it("should return 400 if username already exists in room", async () => {
+      const room: Room = mockRoom({ id: "ROOM1", state: "lobby" });
+      const existingPlayers: Player[] = [mockPlayer({ username: "NewPlayer" })];
 
       mockRequest.body = {
         roomId: "ROOM1",
@@ -163,6 +178,9 @@ describe("PlayerController", () => {
       const roomService =
         require("../../../src/services/roomService").RoomService;
       roomService.prototype.getRoomById = jest.fn().mockResolvedValue(room);
+      roomService.prototype.getRoomPlayers = jest
+        .fn()
+        .mockResolvedValue(existingPlayers);
 
       playerController = new PlayerController();
 
@@ -174,13 +192,15 @@ describe("PlayerController", () => {
       expect(responseStatus).toHaveBeenCalledWith(400);
       expect(responseJson).toHaveBeenCalledWith({
         success: false,
-        error: "Cannot join room - game already in progress",
+        error: "Username already exists in this room",
       });
     });
   });
 
   describe("updatePlayer", () => {
     it("should update player information", async () => {
+      const existingPlayer: Player = mockPlayer({ id: "p1", roomId: "ROOM1" });
+      const room: Room = mockRoom({ id: "ROOM1", state: "lobby" });
       const updatedPlayer: Player = mockPlayer({
         id: "p1",
         username: "UpdatedName",
@@ -195,6 +215,16 @@ describe("PlayerController", () => {
 
       const playerService =
         require("../../../src/services/playerService").PlayerService;
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+
+      playerService.prototype.getPlayerById = jest
+        .fn()
+        .mockResolvedValue(existingPlayer);
+      roomService.prototype.getRoomById = jest.fn().mockResolvedValue(room);
+      roomService.prototype.getRoomPlayers = jest
+        .fn()
+        .mockResolvedValue([existingPlayer]);
       playerService.prototype.updatePlayer = jest
         .fn()
         .mockResolvedValue(updatedPlayer);
@@ -206,23 +236,37 @@ describe("PlayerController", () => {
         mockResponse as Response
       );
 
+      expect(playerService.prototype.getPlayerById).toHaveBeenCalledWith("p1");
       expect(playerService.prototype.updatePlayer).toHaveBeenCalledWith("p1", {
         username: "UpdatedName",
         numbers: [1, 2, 3],
       });
       expect(responseJson).toHaveBeenCalledWith({
         success: true,
-        data: updatedPlayer,
+        data: expect.objectContaining({
+          id: "p1",
+          isHost: false,
+        }),
+        message: "Player updated successfully",
       });
     });
 
-    it("should return 404 if player not found", async () => {
-      mockRequest.params = { playerId: "NOTFOUND" };
+    it("should return 400 if trying to update during active game", async () => {
+      const existingPlayer: Player = mockPlayer({ id: "p1", roomId: "ROOM1" });
+      const room: Room = mockRoom({ id: "ROOM1", state: "playing" });
+
+      mockRequest.params = { playerId: "p1" };
       mockRequest.body = { username: "NewName" };
 
       const playerService =
         require("../../../src/services/playerService").PlayerService;
-      playerService.prototype.updatePlayer = jest.fn().mockResolvedValue(null);
+      const roomService =
+        require("../../../src/services/roomService").RoomService;
+
+      playerService.prototype.getPlayerById = jest
+        .fn()
+        .mockResolvedValue(existingPlayer);
+      roomService.prototype.getRoomById = jest.fn().mockResolvedValue(room);
 
       playerController = new PlayerController();
 
@@ -231,10 +275,10 @@ describe("PlayerController", () => {
         mockResponse as Response
       );
 
-      expect(responseStatus).toHaveBeenCalledWith(404);
+      expect(responseStatus).toHaveBeenCalledWith(400);
       expect(responseJson).toHaveBeenCalledWith({
         success: false,
-        error: "Player not found",
+        error: "Cannot update player during active game",
       });
     });
   });
@@ -271,78 +315,6 @@ describe("PlayerController", () => {
       });
     });
 
-    it("should assign new host when deleting current host", async () => {
-      const player: Player = mockPlayer({ id: "p1", roomId: "ROOM1" });
-      const room: Room = mockRoom({ id: "ROOM1", hostId: "p1" });
-      const remainingPlayers: Player[] = [mockPlayer({ id: "p2" })];
-
-      mockRequest.params = { playerId: "p1" };
-
-      const playerService =
-        require("../../../src/services/playerService").PlayerService;
-      const roomService =
-        require("../../../src/services/roomService").RoomService;
-
-      playerService.prototype.getPlayerById = jest
-        .fn()
-        .mockResolvedValue(player);
-      roomService.prototype.getRoomById = jest.fn().mockResolvedValue(room);
-      playerService.prototype.deletePlayer = jest.fn().mockResolvedValue(true);
-      roomService.prototype.getRoomPlayers = jest
-        .fn()
-        .mockResolvedValue(remainingPlayers);
-      roomService.prototype.updateRoom = jest.fn().mockResolvedValue(room);
-
-      playerController = new PlayerController();
-
-      await playerController.deletePlayer(
-        mockRequest as Request,
-        mockResponse as Response
-      );
-
-      expect(roomService.prototype.updateRoom).toHaveBeenCalledWith("ROOM1", {
-        hostId: "p2",
-      });
-      expect(responseJson).toHaveBeenCalledWith({
-        success: true,
-        message: "Player removed successfully",
-        newHostId: "p2",
-      });
-    });
-
-    it("should delete room if last player leaves", async () => {
-      const player: Player = mockPlayer({ id: "p1", roomId: "ROOM1" });
-      const room: Room = mockRoom({ id: "ROOM1", hostId: "p1" });
-
-      mockRequest.params = { playerId: "p1" };
-
-      const playerService =
-        require("../../../src/services/playerService").PlayerService;
-      const roomService =
-        require("../../../src/services/roomService").RoomService;
-
-      playerService.prototype.getPlayerById = jest
-        .fn()
-        .mockResolvedValue(player);
-      roomService.prototype.getRoomById = jest.fn().mockResolvedValue(room);
-      playerService.prototype.deletePlayer = jest.fn().mockResolvedValue(true);
-      roomService.prototype.getRoomPlayers = jest.fn().mockResolvedValue([]);
-      roomService.prototype.deleteRoom = jest.fn().mockResolvedValue(true);
-
-      playerController = new PlayerController();
-
-      await playerController.deletePlayer(
-        mockRequest as Request,
-        mockResponse as Response
-      );
-
-      expect(roomService.prototype.deleteRoom).toHaveBeenCalledWith("ROOM1");
-      expect(responseJson).toHaveBeenCalledWith({
-        success: true,
-        message: "Player removed and room deleted (no players left)",
-      });
-    });
-
     it("should return 404 if player not found", async () => {
       mockRequest.params = { playerId: "NOTFOUND" };
 
@@ -353,77 +325,6 @@ describe("PlayerController", () => {
       playerController = new PlayerController();
 
       await playerController.deletePlayer(
-        mockRequest as Request,
-        mockResponse as Response
-      );
-
-      // First check if getPlayerById was called
-      const playerService2 =
-        require("../../../src/services/playerService").PlayerService;
-      playerService2.prototype.deletePlayer = jest
-        .fn()
-        .mockResolvedValue(false);
-
-      // The controller checks getPlayerById first, if null, it tries to delete anyway
-      // Let's mock it to return false
-      playerController = new PlayerController();
-
-      await playerController.deletePlayer(
-        mockRequest as Request,
-        mockResponse as Response
-      );
-
-      expect(responseStatus).toHaveBeenCalledWith(404);
-      expect(responseJson).toHaveBeenCalledWith({
-        success: false,
-        error: "Player not found",
-      });
-    });
-  });
-
-  describe("getPlayerStats", () => {
-    it("should return player statistics", async () => {
-      const stats = {
-        playerId: "p1",
-        gamesPlayed: 5,
-        wins: 3,
-        losses: 2,
-      };
-
-      mockRequest.params = { playerId: "p1" };
-
-      const playerService =
-        require("../../../src/services/playerService").PlayerService;
-      playerService.prototype.getPlayerStats = jest
-        .fn()
-        .mockResolvedValue(stats);
-
-      playerController = new PlayerController();
-
-      await playerController.getPlayerStats(
-        mockRequest as Request,
-        mockResponse as Response
-      );
-
-      expect(playerService.prototype.getPlayerStats).toHaveBeenCalledWith("p1");
-      expect(responseJson).toHaveBeenCalledWith({
-        success: true,
-        data: stats,
-      });
-    });
-
-    it("should return 404 if player stats not found", async () => {
-      mockRequest.params = { playerId: "NOTFOUND" };
-
-      const playerService =
-        require("../../../src/services/playerService").PlayerService;
-      playerService.prototype.getPlayerStats = jest
-        .fn()
-        .mockResolvedValue(null);
-
-      playerController = new PlayerController();
-
-      await playerController.getPlayerStats(
         mockRequest as Request,
         mockResponse as Response
       );

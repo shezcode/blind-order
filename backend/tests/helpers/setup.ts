@@ -1,4 +1,3 @@
-// backend/tests/helpers/setup.ts
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
@@ -120,3 +119,7 @@ export const generateRoomId = () => {
 process.env.NODE_ENV = "test";
 process.env.DATABASE_TYPE = "sqlite";
 process.env.PORT = "3002";
+
+// Override the database path for tests
+const testDbPath = path.join(process.cwd(), "data", "test.db");
+process.env.SQLITE_DB_PATH = testDbPath;
